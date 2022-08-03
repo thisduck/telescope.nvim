@@ -66,7 +66,7 @@ local diagnostics_to_tbl = function(opts)
       filename = bufnr_name_map[diagnostic.bufnr],
       lnum = diagnostic.lnum + 1,
       col = diagnostic.col + 1,
-      text = vim.trim(diagnostic.message:gsub("[\n]", "")),
+      text = vim.trim(diagnostic.message:gsub("[\n]", "") .. " (" .. diagnostic.source .. ")"),
       type = severities[diagnostic.severity] or severities[1],
     }
   end
