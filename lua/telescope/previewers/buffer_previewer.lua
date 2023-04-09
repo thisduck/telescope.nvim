@@ -152,11 +152,13 @@ local scroll_fn = function(self, direction)
 end
 
 previewers.file_maker = function(filepath, bufnr, opts)
-  opts = opts or {}
-  opts.preview = opts.preview or {}
+  opts = vim.F.if_nil(opts, {})
+  -- TODO(conni2461): here shouldn't be any hardcoded magic numbers ...
+  opts.preview = vim.F.if_nil(opts.preview, {})
   opts.preview.timeout = vim.F.if_nil(opts.preview.timeout, 250) -- in ms
   opts.preview.filesize_limit = vim.F.if_nil(opts.preview.filesize_limit, 25) -- in mb
   opts.preview.msg_bg_fillchar = vim.F.if_nil(opts.preview.msg_bg_fillchar, "╱") -- in mb
+  opts.preview.treesitter = vim.F.if_nil(opts.preview.treesitter, true)
   if opts.use_ft_detect == nil then
     opts.use_ft_detect = true
   end
@@ -462,13 +464,18 @@ previewers.vimgrep = defaulter(function(opts)
     end,
 
     define_preview = function(self, entry, status)
-      local p = from_entry.path(entry, true)
-      if p == nil or p == "" then
-        return
+      -- builtin.buffers: bypass path validation for terminal buffers that don't have appropriate path
+      local has_buftype = entry.bufnr and vim.api.nvim_buf_get_option(entry.bufnr, "buftype") ~= "" or false
+      local p
+      if not has_buftype then
+        p = from_entry.path(entry, true)
+        if p == nil or p == "" then
+          return
+        end
       end
 
       -- Workaround for unnamed buffer when using builtin.buffer
-      if entry.bufnr and (p == "[No Name]" or vim.api.nvim_buf_get_option(entry.bufnr, "buftype") ~= "") then
+      if entry.bufnr and (p == "[No Name]" or has_buftype) then
         local lines = vim.api.nvim_buf_get_lines(entry.bufnr, 0, -1, false)
         vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
         jump_to_line(self, self.state.bufnr, entry.lnum)
@@ -874,7 +881,7 @@ previewers.git_file_diff = defaulter(function(opts)
           winid = self.state.winid,
         })
       else
-        putils.job_maker({ "git", "--no-pager", "diff", entry.value }, self.state.bufnr, {
+        putils.job_maker({ "git", "--no-pager", "diff", "HEAD", "--", entry.value }, self.state.bufnr, {
           value = entry.value,
           bufname = self.state.bufname,
           cwd = opts.cwd,

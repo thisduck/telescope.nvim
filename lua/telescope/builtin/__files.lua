@@ -59,6 +59,36 @@ local get_open_filelist = function(grep_open_files, cwd)
   return filelist
 end
 
+local opts_contain_invert = function(args)
+  local invert = false
+  local files_with_matches = false
+
+  for _, v in ipairs(args) do
+    if v == "--invert-match" then
+      invert = true
+    elseif v == "--files-with-matches" or v == "--files-without-match" then
+      files_with_matches = true
+    end
+
+    if #v >= 2 and v:sub(1, 1) == "-" and v:sub(2, 2) ~= "-" then
+      local non_option = false
+      for i = 2, #v do
+        local vi = v:sub(i, i)
+        if vi == "=" then -- ignore option -g=xxx
+          break
+        elseif vi == "g" or vi == "f" or vi == "m" or vi == "e" or vi == "r" or vi == "t" or vi == "T" then
+          non_option = true
+        elseif non_option == false and vi == "v" then
+          invert = true
+        elseif non_option == false and vi == "l" then
+          files_with_matches = true
+        end
+      end
+    end
+  end
+  return invert, files_with_matches
+end
+
 -- Special keys:
 --  opts.search_dirs -- list of directory to search in
 --  opts.grep_open_files -- boolean to restrict search to open files
@@ -76,8 +106,12 @@ files.live_grep = function(opts)
   end
 
   local additional_args = {}
-  if opts.additional_args ~= nil and type(opts.additional_args) == "function" then
-    additional_args = opts.additional_args(opts)
+  if opts.additional_args ~= nil then
+    if type(opts.additional_args) == "function" then
+      additional_args = opts.additional_args(opts)
+    elseif type(opts.additional_args) == "table" then
+      additional_args = opts.additional_args
+    end
   end
 
   if opts.type_filter then
@@ -92,9 +126,10 @@ files.live_grep = function(opts)
     end
   end
 
-  local live_grepper = finders.new_job(function(prompt)
-    -- TODO: Probably could add some options for smart case and whatever else rg offers.
+  local args = flatten { vimgrep_arguments, additional_args }
+  opts.__inverted, opts.__matches = opts_contain_invert(args)
 
+  local live_grepper = finders.new_job(function(prompt)
     if not prompt or prompt == "" then
       return nil
     end
@@ -107,7 +142,7 @@ files.live_grep = function(opts)
       search_list = search_dirs
     end
 
-    return flatten { vimgrep_arguments, additional_args, "--", prompt, search_list }
+    return flatten { args, "--", prompt, search_list }
   end, opts.entry_maker or make_entry.gen_from_vimgrep(opts), opts.max_results, opts.cwd)
 
   pickers
@@ -127,30 +162,54 @@ files.live_grep = function(opts)
 end
 
 files.grep_string = function(opts)
-  -- TODO: This should probably check your visual selection as well, if you've got one
   opts.cwd = opts.cwd and vim.fn.expand(opts.cwd) or vim.loop.cwd()
   local vimgrep_arguments = vim.F.if_nil(opts.vimgrep_arguments, conf.vimgrep_arguments)
-  local word = vim.F.if_nil(opts.search, vim.fn.expand "<cword>")
+  local word
+  local visual = vim.fn.mode() == "v"
+
+  if visual == true then
+    local saved_reg = vim.fn.getreg "v"
+    vim.cmd [[noautocmd sil norm "vy]]
+    local sele = vim.fn.getreg "v"
+    vim.fn.setreg("v", saved_reg)
+    word = vim.F.if_nil(opts.search, sele)
+  else
+    word = vim.F.if_nil(opts.search, vim.fn.expand "<cword>")
+  end
   local search = opts.use_regex and word or escape_chars(word)
 
   local additional_args = {}
-  if opts.additional_args ~= nil and type(opts.additional_args) == "function" then
-    additional_args = opts.additional_args(opts)
+  if opts.additional_args ~= nil then
+    if type(opts.additional_args) == "function" then
+      additional_args = opts.additional_args(opts)
+    elseif type(opts.additional_args) == "table" then
+      additional_args = opts.additional_args
+    end
   end
 
   if search == "" then
     search = { "-v", "--", "^[[:space:]]*$" }
-    opts.__inverted = true
   else
     search = { "--", search }
   end
 
-  local args = flatten {
-    vimgrep_arguments,
-    additional_args,
-    opts.word_match,
-    search,
-  }
+  local args
+  if visual == true then
+    args = flatten {
+      vimgrep_arguments,
+      additional_args,
+      search,
+    }
+  else
+    args = flatten {
+      vimgrep_arguments,
+      additional_args,
+      opts.word_match,
+      search,
+    }
+  end
+
+  opts.__inverted, opts.__matches = opts_contain_invert(args)
 
   if opts.grep_open_files then
     for _, file in ipairs(get_open_filelist(opts.grep_open_files, opts.cwd)) do
@@ -180,12 +239,12 @@ files.find_files = function(opts)
         return opts.find_command(opts)
       end
       return opts.find_command
-    elseif 1 == vim.fn.executable "fd" then
-      return { "fd", "--type", "f" }
-    elseif 1 == vim.fn.executable "fdfind" then
-      return { "fdfind", "--type", "f" }
     elseif 1 == vim.fn.executable "rg" then
-      return { "rg", "--files" }
+      return { "rg", "--files", "--color", "never" }
+    elseif 1 == vim.fn.executable "fd" then
+      return { "fd", "--type", "f", "--color", "never" }
+    elseif 1 == vim.fn.executable "fdfind" then
+      return { "fdfind", "--type", "f", "--color", "never" }
     elseif 1 == vim.fn.executable "find" and vim.fn.has "win32" == 0 then
       return { "find", ".", "-type", "f" }
     elseif 1 == vim.fn.executable "where" then
@@ -217,32 +276,30 @@ files.find_files = function(opts)
 
   if command == "fd" or command == "fdfind" or command == "rg" then
     if hidden then
-      table.insert(find_command, "--hidden")
+      find_command[#find_command + 1] = "--hidden"
     end
     if no_ignore then
-      table.insert(find_command, "--no-ignore")
+      find_command[#find_command + 1] = "--no-ignore"
     end
     if no_ignore_parent then
-      table.insert(find_command, "--no-ignore-parent")
+      find_command[#find_command + 1] = "--no-ignore-parent"
     end
     if follow then
-      table.insert(find_command, "-L")
+      find_command[#find_command + 1] = "-L"
     end
     if search_file then
       if command == "rg" then
-        table.insert(find_command, "-g")
-        table.insert(find_command, "*" .. search_file .. "*")
+        find_command[#find_command + 1] = "-g"
+        find_command[#find_command + 1] = "*" .. search_file .. "*"
       else
-        table.insert(find_command, search_file)
+        find_command[#find_command + 1] = search_file
       end
     end
     if search_dirs then
       if command ~= "rg" and not search_file then
-        table.insert(find_command, ".")
+        find_command[#find_command + 1] = "."
       end
-      for _, v in pairs(search_dirs) do
-        table.insert(find_command, v)
-      end
+      vim.list_extend(find_command, search_dirs)
     end
   elseif command == "find" then
     if not hidden then
@@ -351,6 +408,12 @@ files.treesitter = function(opts)
     end
   end
 
+  results = utils.filter_symbols(results, opts)
+  if results == nil then
+    -- error message already printed in `utils.filter_symbols`
+    return
+  end
+
   if vim.tbl_isempty(results) then
     return
   end
@@ -395,12 +458,10 @@ files.current_buffer_fuzzy_find = function(opts)
   local _, ts_configs = pcall(require, "nvim-treesitter.configs")
 
   local parser_ok, parser = pcall(vim.treesitter.get_parser, opts.bufnr, filetype)
-  local query_ok, query = pcall(vim.treesitter.get_query, filetype, "highlights")
+  local get_query = vim.treesitter.query.get or vim.treesitter.get_query
+  local query_ok, query = pcall(get_query, filetype, "highlights")
   if parser_ok and query_ok and ts_ok and ts_configs.is_enabled("highlight", filetype, opts.bufnr) then
     local root = parser:parse()[1]:root()
-
-    local highlighter = vim.treesitter.highlighter.new(parser)
-    local highlighter_query = highlighter:get_query(filetype)
 
     local line_highlights = setmetatable({}, {
       __index = function(t, k)
@@ -409,8 +470,26 @@ files.current_buffer_fuzzy_find = function(opts)
         return obj
       end,
     })
+
+    -- update to changes on Neovim master, see https://github.com/neovim/neovim/pull/19931
+    -- TODO(clason): remove when dropping support for Neovim 0.7
+    local get_hl_from_capture = (function()
+      if vim.fn.has "nvim-0.8" == 1 then
+        return function(q, id)
+          return "@" .. q.captures[id]
+        end
+      else
+        local highlighter = vim.treesitter.highlighter.new(parser)
+        local highlighter_query = highlighter:get_query(filetype)
+
+        return function(_, id)
+          return highlighter_query:_get_hl_from_capture(id)
+        end
+      end
+    end)()
+
     for id, node in query:iter_captures(root, opts.bufnr, 0, -1) do
-      local hl = highlighter_query:_get_hl_from_capture(id)
+      local hl = get_hl_from_capture(query, id)
       if hl and type(hl) ~= "number" then
         local row1, col1, row2, col2 = node:range()
 
@@ -459,6 +538,7 @@ files.current_buffer_fuzzy_find = function(opts)
 
         return true
       end,
+      push_cursor_on_edit = true,
     })
     :find()
 end

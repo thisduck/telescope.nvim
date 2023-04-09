@@ -71,12 +71,9 @@ git.commits = function(opts)
       sorter = conf.file_sorter(opts),
       attach_mappings = function(_, map)
         actions.select_default:replace(actions.git_checkout)
-        map("i", "<c-r>m", actions.git_reset_mixed)
-        map("n", "<c-r>m", actions.git_reset_mixed)
-        map("i", "<c-r>s", actions.git_reset_soft)
-        map("n", "<c-r>s", actions.git_reset_soft)
-        map("i", "<c-r>h", actions.git_reset_hard)
-        map("n", "<c-r>h", actions.git_reset_hard)
+        map({ "i", "n" }, "<c-r>m", actions.git_reset_mixed)
+        map({ "i", "n" }, "<c-r>s", actions.git_reset_soft)
+        map({ "i", "n" }, "<c-r>h", actions.git_reset_hard)
         return true
       end,
     })
@@ -203,8 +200,11 @@ git.branches = function(opts)
     .. "%(authorname)"
     .. "%(upstream:lstrip=2)"
     .. "%(committerdate:format-local:%Y/%m/%d %H:%M:%S)"
-  local output =
-    utils.get_os_command_output({ "git", "for-each-ref", "--perl", "--format", format, opts.pattern }, opts.cwd)
+  local output = utils.get_os_command_output(
+    { "git", "for-each-ref", "--perl", "--format", format, "--sort", "-authordate", opts.pattern },
+    opts.cwd
+  )
+  local show_remote_tracking_branches = vim.F.if_nil(opts.show_remote_tracking_branches, true)
 
   local results = {}
   local widths = {
@@ -227,7 +227,11 @@ git.branches = function(opts)
     }
     local prefix
     if vim.startswith(entry.refname, "refs/remotes/") then
-      prefix = "refs/remotes/"
+      if show_remote_tracking_branches then
+        prefix = "refs/remotes/"
+      else
+        return
+      end
     elseif vim.startswith(entry.refname, "refs/heads/") then
       prefix = "refs/heads/"
     else
@@ -293,23 +297,12 @@ git.branches = function(opts)
       sorter = conf.file_sorter(opts),
       attach_mappings = function(_, map)
         actions.select_default:replace(actions.git_checkout)
-        map("i", "<c-t>", actions.git_track_branch)
-        map("n", "<c-t>", actions.git_track_branch)
-
-        map("i", "<c-r>", actions.git_rebase_branch)
-        map("n", "<c-r>", actions.git_rebase_branch)
-
-        map("i", "<c-a>", actions.git_create_branch)
-        map("n", "<c-a>", actions.git_create_branch)
-
-        map("i", "<c-s>", actions.git_switch_branch)
-        map("n", "<c-s>", actions.git_switch_branch)
-
-        map("i", "<c-d>", actions.git_delete_branch)
-        map("n", "<c-d>", actions.git_delete_branch)
-
-        map("i", "<c-y>", actions.git_merge_branch)
-        map("n", "<c-y>", actions.git_merge_branch)
+        map({ "i", "n" }, "<c-t>", actions.git_track_branch)
+        map({ "i", "n" }, "<c-r>", actions.git_rebase_branch)
+        map({ "i", "n" }, "<c-a>", actions.git_create_branch)
+        map({ "i", "n" }, "<c-s>", actions.git_switch_branch)
+        map({ "i", "n" }, "<c-d>", actions.git_delete_branch)
+        map({ "i", "n" }, "<c-y>", actions.git_merge_branch)
         return true
       end,
     })
@@ -327,7 +320,7 @@ git.status = function(opts)
 
   local gen_new_finder = function()
     local expand_dir = vim.F.if_nil(opts.expand_dir, true)
-    local git_cmd = { "git", "status", "-s", "--", "." }
+    local git_cmd = { "git", "status", "-z", "--", "." }
 
     if expand_dir then
       table.insert(git_cmd, #git_cmd - 1, "-u")
@@ -345,7 +338,7 @@ git.status = function(opts)
     end
 
     return finders.new_table {
-      results = output,
+      results = vim.split(output[1], " ", { trimempty = true }),
       entry_maker = vim.F.if_nil(opts.entry_maker, make_entry.gen_from_git_status(opts)),
     }
   end
@@ -364,12 +357,22 @@ git.status = function(opts)
       attach_mappings = function(prompt_bufnr, map)
         actions.git_staging_toggle:enhance {
           post = function()
-            action_state.get_current_picker(prompt_bufnr):refresh(gen_new_finder(), { reset_prompt = true })
+            local picker = action_state.get_current_picker(prompt_bufnr)
+
+            -- temporarily register a callback which keeps selection on refresh
+            local selection = picker:get_selection_row()
+            local callbacks = { unpack(picker._completion_callbacks) } -- shallow copy
+            picker:register_completion_callback(function(self)
+              self:set_selection(selection)
+              self._completion_callbacks = callbacks
+            end)
+
+            -- refresh
+            picker:refresh(gen_new_finder(), { reset_prompt = false })
           end,
         }
 
-        map("i", "<tab>", actions.git_staging_toggle)
-        map("n", "<tab>", actions.git_staging_toggle)
+        map({ "i", "n" }, "<tab>", actions.git_staging_toggle)
         return true
       end,
     })

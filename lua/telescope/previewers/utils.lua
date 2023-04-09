@@ -78,9 +78,22 @@ end
 
 --- Attach default highlighter which will choose between regex and ts
 utils.highlighter = function(bufnr, ft, opts)
-  opts = opts or {}
-  opts.preview = opts.preview or {}
-  opts.preview.treesitter = vim.F.if_nil(opts.preview.treesitter, conf.preview.treesitter)
+  opts = vim.F.if_nil(opts, {})
+  opts.preview = vim.F.if_nil(opts.preview, {})
+  opts.preview.treesitter = (function()
+    if type(opts.preview) == "table" and opts.preview.treesitter then
+      return opts.preview.treesitter
+    end
+    if type(conf.preview) == "table" and conf.preview.treesitter then
+      return conf.preview.treesitter
+    end
+    if type(conf.preview) == "boolean" then
+      return conf.preview
+    end
+    -- We should never get here
+    return false
+  end)()
+
   if type(opts.preview.treesitter) == "boolean" then
     local temp = { enable = opts.preview.treesitter }
     opts.preview.treesitter = temp
@@ -113,8 +126,7 @@ end
 --- Attach regex highlighter
 utils.regex_highlighter = function(bufnr, ft)
   if has_filetype(ft) then
-    vim.api.nvim_buf_set_option(bufnr, "syntax", ft)
-    return true
+    return pcall(vim.api.nvim_buf_set_option, bufnr, "syntax", ft)
   end
   return false
 end
@@ -126,9 +138,6 @@ local treesitter_attach = function(bufnr, ft)
   end
 
   local config = ts_configs.get_module "highlight"
-  for k, v in pairs(config.custom_captures) do
-    vim.treesitter.highlighter.hl_map[k] = v
-  end
   vim.treesitter.highlighter.new(ts_parsers.get_parser(bufnr, lang))
   local is_table = type(config.additional_vim_regex_highlighting) == "table"
   if

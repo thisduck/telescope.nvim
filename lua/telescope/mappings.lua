@@ -2,12 +2,11 @@
 
 ---@brief [[
 --- |telescope.mappings| is used to configure the keybindings within
---- a telescope picker. These keybinds are only local to the picker window
+--- a telescope picker. These key binds are only local to the picker window
 --- and will be cleared once you exit the picker.
 ---
---- We provide multiple different ways of configuring, as described below,
---- to provide an easy to use experience for changing the default behavior
---- of telescope or extending for your own purposes.
+--- We provide multiple configuration options to make it easy for you to adjust
+--- telescope's default key bindings and create your own custom key binds.
 ---
 --- To see many of the builtin actions that you can use as values for this
 --- table, see |telescope.actions|
@@ -39,7 +38,6 @@
 ---     ...,
 ---   }
 --- </code>
----    Into your config.
 ---
 --- To override behavior of a key, simply set the value
 --- to be a function (either by requiring an action or by writing
@@ -53,7 +51,7 @@
 --- </code>
 ---
 ---  If the function you want is part of `telescope.actions`, then you can
----  simply give a string.
+---  simply supply the function name as a string.
 ---    For example, the previous option is equivalent to:
 --- <code>
 ---   {
@@ -80,7 +78,7 @@
 ---   {
 ---     ...,
 ---     ["<C-j>"] = {
----       action = actions.move_selection_next,
+---       actions.move_selection_next, type = "action",
 ---       opts = { nowait = true, silent = true }
 ---     },
 ---     ...,
@@ -112,6 +110,11 @@
 ---       map("i", "asdf", function(_prompt_bufnr)
 ---         print "You typed asdf"
 ---       end)
+---
+---       map({"i", "n"}, "<C-r>", function(_prompt_bufnr)
+---         print "You typed <C-r>"
+---       end)
+---
 ---       -- needs to return true if you want to map default_mappings and
 ---       -- false if not
 ---       return true
@@ -157,6 +160,9 @@ mappings.default_mappings = config.values.default_mappings
       ["<C-/>"] = actions.which_key,
       ["<C-_>"] = actions.which_key, -- keys from pressing <C-/>
       ["<C-w>"] = { "<c-s-w>", type = "command" },
+
+      -- disable c-j because we dont want to allow new lines #2123
+      ["<C-j>"] = actions.nop,
     },
 
     n = {
@@ -281,12 +287,18 @@ end
 mappings.apply_keymap = function(prompt_bufnr, attach_mappings, buffer_keymap)
   local applied_mappings = { n = {}, i = {} }
 
-  local map = function(mode, key_bind, key_func, opts)
-    mode = string.lower(mode)
-    local key_bind_internal = a.nvim_replace_termcodes(key_bind, true, true, true)
-    applied_mappings[mode][key_bind_internal] = true
+  local map = function(modes, key_bind, key_func, opts)
+    if type(modes) == "string" then
+      modes = { modes }
+    end
 
-    telescope_map(prompt_bufnr, mode, key_bind, key_func, opts)
+    for _, mode in pairs(modes) do
+      mode = string.lower(mode)
+      local key_bind_internal = a.nvim_replace_termcodes(key_bind, true, true, true)
+      applied_mappings[mode][key_bind_internal] = true
+
+      telescope_map(prompt_bufnr, mode, key_bind, key_func, opts)
+    end
   end
 
   if attach_mappings then
@@ -336,7 +348,7 @@ mappings.execute_keymap = function(prompt_bufnr, keymap_identifier)
   assert(key_func, string.format("Unsure of how we got this failure: %s %s", prompt_bufnr, keymap_identifier))
 
   key_func(prompt_bufnr)
-  vim.api.nvim_exec_autocmds("User TelescopeKeymap", {})
+  vim.api.nvim_exec_autocmds("User", { pattern = "TelescopeKeymap" })
 end
 
 mappings.clear = function(prompt_bufnr)

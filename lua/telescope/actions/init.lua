@@ -2,9 +2,9 @@
 ---@config { ["module"] = "telescope.actions" }
 
 ---@brief [[
---- Actions functions that are useful for people creating their own mappings.
+--- These functions are useful for people creating their own mappings.
 ---
---- Actions can be either normal functions that expect the prompt_bufnr as
+--- Actions can be either normal functions that expect the `prompt_bufnr` as
 --- first argument (1) or they can be a custom telescope type called "action" (2).
 ---
 --- (1) The `prompt_bufnr` of a normal function denotes the identifier of your
@@ -45,7 +45,7 @@
 ---   action(bufnr)
 --- </code>
 ---
---- Another interesing thing to do is that these actions now have functions you
+--- Another interesting thing to do is that these actions now have functions you
 --- can call. These functions include `:replace(f)`, `:replace_if(f, c)`,
 --- `replace_map(tbl)` and `enhance(tbl)`. More information on these functions
 --- can be found in the `developers.md` and `lua/tests/automated/action_spec.lua`
@@ -150,7 +150,7 @@ actions.toggle_selection = function(prompt_bufnr)
 end
 
 --- Multi select all entries.
---- - Note: selected entries may include results not visible in the results popup.
+--- - Note: selected entries may include results not visible in the results pop up.
 ---@param prompt_bufnr number: The prompt bufnr
 actions.select_all = function(prompt_bufnr)
   local current_picker = action_state.get_current_picker(prompt_bufnr)
@@ -187,7 +187,7 @@ actions.drop_all = function(prompt_bufnr)
 end
 
 --- Toggle multi selection for all entries.
---- - Note: toggled entries may include results not visible in the results popup.
+--- - Note: toggled entries may include results not visible in the results pop up.
 ---@param prompt_bufnr number: The prompt bufnr
 actions.toggle_all = function(prompt_bufnr)
   local current_picker = action_state.get_current_picker(prompt_bufnr)
@@ -299,6 +299,38 @@ actions.select_tab = {
   end,
 }
 
+--- Perform 'drop' action on selection, usually something like<br>
+---`:drop <selection>`
+---
+--- i.e. open the selection in a window
+---@param prompt_bufnr number: The prompt bufnr
+actions.select_drop = {
+  pre = function(prompt_bufnr)
+    action_state
+      .get_current_history()
+      :append(action_state.get_current_line(), action_state.get_current_picker(prompt_bufnr))
+  end,
+  action = function(prompt_bufnr)
+    return action_set.select(prompt_bufnr, "drop")
+  end,
+}
+
+--- Perform 'tab drop' action on selection, usually something like<br>
+---`:tab drop <selection>`
+---
+--- i.e. open the selection in a new tab
+---@param prompt_bufnr number: The prompt bufnr
+actions.select_tab_drop = {
+  pre = function(prompt_bufnr)
+    action_state
+      .get_current_history()
+      :append(action_state.get_current_line(), action_state.get_current_picker(prompt_bufnr))
+  end,
+  action = function(prompt_bufnr)
+    return action_set.select(prompt_bufnr, "tab drop")
+  end,
+}
+
 -- TODO: consider adding float!
 -- https://github.com/nvim-telescope/telescope.nvim/issues/365
 
@@ -371,7 +403,7 @@ local set_edit_line = function(prompt_bufnr, fname, prefix, postfix)
   a.nvim_feedkeys(a.nvim_replace_termcodes(prefix .. selection.value .. postfix, true, false, true), "t", true)
 end
 
---- Set a value in the command line and dont run it, making it editable.
+--- Set a value in the command line and don't run it, making it editable.
 ---@param prompt_bufnr number: The prompt bufnr
 actions.edit_command_line = function(prompt_bufnr)
   set_edit_line(prompt_bufnr, "actions.edit_command_line", ":")
@@ -390,7 +422,7 @@ actions.set_command_line = function(prompt_bufnr)
   vim.cmd(selection.value)
 end
 
---- Set a value in the search line and dont search for it, making it editable.
+--- Set a value in the search line and don't search for it, making it editable.
 ---@param prompt_bufnr number: The prompt bufnr
 actions.edit_search_line = function(prompt_bufnr)
   set_edit_line(prompt_bufnr, "actions.edit_search_line", "/")
@@ -560,6 +592,7 @@ actions.git_checkout = function(prompt_bufnr)
       msg = string.format("Checked out: %s", selection.value),
       level = "INFO",
     })
+    vim.cmd "checktime"
   else
     utils.notify("actions.git_checkout", {
       msg = string.format(
@@ -652,18 +685,34 @@ actions.git_track_branch = make_git_branch_action {
   end,
 }
 
---- Delete the currently selected branch
+--- Delete all currently selected branches
 ---@param prompt_bufnr number: The prompt bufnr
-actions.git_delete_branch = make_git_branch_action {
-  should_confirm = true,
-  action_name = "actions.git_delete_branch",
-  confirmation_question = "Do you really wanna delete branch %s? [Y/n] ",
-  success_message = "Deleted branch: %s",
-  error_message = "Error when deleting branch: %s. Git returned: '%s'",
-  command = function(branch_name)
-    return { "git", "branch", "-D", branch_name }
-  end,
-}
+actions.git_delete_branch = function(prompt_bufnr)
+  local confirmation = vim.fn.input "Do you really want to delete the selected branches? [Y/n] "
+  if confirmation ~= "" and string.lower(confirmation) ~= "y" then
+    return
+  end
+
+  local picker = action_state.get_current_picker(prompt_bufnr)
+  local action_name = "actions.git_delete_branch"
+  picker:delete_selection(function(selection)
+    local branch = selection.value
+    print("Deleting branch " .. branch)
+    local _, ret, stderr = utils.get_os_command_output({ "git", "branch", "-D", branch }, picker.cwd)
+    if ret == 0 then
+      utils.notify(action_name, {
+        msg = string.format("Deleted branch: %s", branch),
+        level = "INFO",
+      })
+    else
+      utils.notify(action_name, {
+        msg = string.format("Error when deleting branch: %s. Git returned: '%s'", branch, table.concat(stderr, " ")),
+        level = "ERROR",
+      })
+    end
+    return ret == 0
+  end)
+end
 
 --- Merge the currently selected branch
 ---@param prompt_bufnr number: The prompt bufnr
@@ -749,6 +798,7 @@ actions.git_checkout_current_buffer = function(prompt_bufnr)
   end
   actions.close(prompt_bufnr)
   utils.get_os_command_output({ "git", "checkout", selection.value, "--", selection.file }, cwd)
+  vim.cmd "checktime"
 end
 
 --- Stage/unstage selected file
@@ -1128,7 +1178,7 @@ actions.which_key = function(prompt_bufnr, opts)
           name = name == "" and action or name .. " + " .. action
         end
       end
-      if name and name ~= "which_key" then
+      if name and name ~= "which_key" and name ~= "nop" then
         if not opts.only_show_current_mode or mode == v.mode then
           table.insert(mappings, { mode = v.mode, keybind = v.keybind, name = name })
         end
@@ -1288,6 +1338,8 @@ actions.to_fuzzy_refine = function(prompt_bufnr)
     sorter = conf.generic_sorter {},
   })
 end
+
+actions.nop = function(_) end
 
 -- ==================================================
 -- Transforms modules and sets the correct metatables.

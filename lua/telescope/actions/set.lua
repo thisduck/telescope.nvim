@@ -67,6 +67,8 @@ end
 local edit_buffer
 do
   local map = {
+    drop = "drop",
+    ["tab drop"] = "tab drop",
     edit = "buffer",
     new = "sbuffer",
     vnew = "vert sbuffer",
@@ -78,7 +80,11 @@ do
     if command == nil then
       error "There was no associated buffer command"
     end
-    vim.cmd(string.format("%s %d", command, bufnr))
+    if command ~= "drop" and command ~= "tab drop" then
+      vim.cmd(string.format("%s %d", command, bufnr))
+    else
+      vim.cmd(string.format("%s %s", command, vim.fn.fnameescape(vim.api.nvim_buf_get_name(bufnr))))
+    end
   end
 end
 
@@ -104,7 +110,7 @@ action_set.edit = function(prompt_bufnr, command)
 
     -- TODO: Check for off-by-one
     row = entry.row or entry.lnum
-    col = vim.F.if_nil(entry.col, 1)
+    col = entry.col
   elseif not entry.bufnr then
     -- TODO: Might want to remove this and force people
     -- to put stuff into `filename`
@@ -163,6 +169,17 @@ action_set.edit = function(prompt_bufnr, command)
     end
   end
 
+  local pos = vim.api.nvim_win_get_cursor(0)
+  if col == nil then
+    if row == pos[1] then
+      col = pos[2] + 1
+    elseif row == nil then
+      row, col = pos[1], pos[2] + 1
+    else
+      col = 1
+    end
+  end
+
   if row and col then
     local ok, err_msg = pcall(a.nvim_win_set_cursor, 0, { row, col })
     if not ok then
@@ -179,13 +196,13 @@ end
 --      Valid directions include: "1", "-1"
 action_set.scroll_previewer = function(prompt_bufnr, direction)
   local previewer = action_state.get_current_picker(prompt_bufnr).previewer
+  local status = state.get_status(prompt_bufnr)
 
-  -- Check if we actually have a previewer
-  if type(previewer) ~= "table" or previewer.scroll_fn == nil then
+  -- Check if we actually have a previewer and a preview window
+  if type(previewer) ~= "table" or previewer.scroll_fn == nil or status.preview_win == nil then
     return
   end
 
-  local status = state.get_status(prompt_bufnr)
   local default_speed = vim.api.nvim_win_get_height(status.preview_win) / 2
   local speed = status.picker.layout_config.scroll_speed or default_speed
 

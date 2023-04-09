@@ -1,6 +1,7 @@
 # telescope.nvim
 
 [![Gitter](https://badges.gitter.im/nvim-telescope/community.svg)](https://gitter.im/nvim-telescope/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+[![LuaRocks](https://img.shields.io/luarocks/v/Conni2461/telescope.nvim?logo=lua&color=purple)](https://luarocks.org/modules/Conni2461/telescope.nvim)
 
 Gaze deeply into unknown regions using the power of the moon.
 
@@ -51,7 +52,7 @@ latest neovim nightly commit is required for `telescope.nvim` to work.
 ### Suggested dependencies
 
 - [BurntSushi/ripgrep](https://github.com/BurntSushi/ripgrep) is required for
-  `live_grep` and `grep_string`
+  `live_grep` and `grep_string` and is the first priority for `find_files`.
 
 We also suggest you install one native telescope sorter to significantly improve
 sorting performance. Take a look at either
@@ -67,7 +68,7 @@ wiki.
 - [sharkdp/fd](https://github.com/sharkdp/fd) (finder)
 - [nvim-treesitter/nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) (finder/preview)
 - [neovim LSP]( https://neovim.io/doc/user/lsp.html) (picker)
-- [devicons](https://github.com/kyazdani42/nvim-web-devicons) (icons)
+- [devicons](https://github.com/nvim-tree/nvim-web-devicons) (icons)
 
 ### Installation
 
@@ -82,7 +83,7 @@ Using [vim-plug](https://github.com/junegunn/vim-plug)
 
 ```viml
 Plug 'nvim-lua/plenary.nvim'
-Plug 'nvim-telescope/telescope.nvim', { 'tag': '0.1.0' }
+Plug 'nvim-telescope/telescope.nvim', { 'tag': '0.1.1' }
 " or                                , { 'branch': '0.1.x' }
 ```
 
@@ -90,17 +91,35 @@ Using [dein](https://github.com/Shougo/dein.vim)
 
 ```viml
 call dein#add('nvim-lua/plenary.nvim')
-call dein#add('nvim-telescope/telescope.nvim', { 'rev': '0.1.0' })
+call dein#add('nvim-telescope/telescope.nvim', { 'rev': '0.1.1' })
 " or                                         , { 'rev': '0.1.x' })
 ```
 Using [packer.nvim](https://github.com/wbthomason/packer.nvim)
 
 ```lua
 use {
-  'nvim-telescope/telescope.nvim', tag = '0.1.0',
+  'nvim-telescope/telescope.nvim', tag = '0.1.1',
 -- or                            , branch = '0.1.x',
   requires = { {'nvim-lua/plenary.nvim'} }
 }
+```
+
+Using [lazy.nvim](https://github.com/folke/lazy.nvim)
+
+```lua
+-- init.lua:
+    {
+    'nvim-telescope/telescope.nvim', tag = '0.1.1',
+-- or                              , branch = '0.1.1',
+      dependencies = { 'nvim-lua/plenary.nvim' }
+    }
+
+-- plugins/telescope.lua:
+return {
+    'nvim-telescope/telescope.nvim', tag = '0.1.1',
+-- or                              , branch = '0.1.1',
+      dependencies = { 'nvim-lua/plenary.nvim' }
+    }
 ```
 
 ### checkhealth
@@ -116,6 +135,8 @@ to get an understanding of how to use Telescope and how to configure it.
 Try the command `:Telescope find_files<cr>`
   to see if `telescope.nvim` is installed correctly.
 
+Using VimL:
+
 ```viml
 " Find files using Telescope command-line sugar.
 nnoremap <leader>ff <cmd>Telescope find_files<cr>
@@ -128,6 +149,16 @@ nnoremap <leader>ff <cmd>lua require('telescope.builtin').find_files()<cr>
 nnoremap <leader>fg <cmd>lua require('telescope.builtin').live_grep()<cr>
 nnoremap <leader>fb <cmd>lua require('telescope.builtin').buffers()<cr>
 nnoremap <leader>fh <cmd>lua require('telescope.builtin').help_tags()<cr>
+```
+
+Using Lua:
+
+```lua
+local builtin = require('telescope.builtin')
+vim.keymap.set('n', '<leader>ff', builtin.find_files, {})
+vim.keymap.set('n', '<leader>fg', builtin.live_grep, {})
+vim.keymap.set('n', '<leader>fb', builtin.buffers, {})
+vim.keymap.set('n', '<leader>fh', builtin.help_tags, {})
 ```
 
 See [builtin pickers](#pickers) for a list of all builtin functions.
@@ -267,12 +298,12 @@ Built-in functions. Ready to be bound to any key you like.
 
 ### File Pickers
 
-| Functions                           | Description                                                                                                                       |
-|-------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| `builtin.find_files`                | Lists files in your current working directory, respects .gitignore                                                                |
-| `builtin.git_files`                 | Fuzzy search through the output of `git ls-files` command, respects .gitignore, optionally ignores untracked files                |
-| `builtin.grep_string`               | Searches for the string under your cursor in your current working directory                                                       |
-| `builtin.live_grep`                 | Search for a string in your current working directory and get results live as you type (respecting .gitignore)                    |
+| Functions                           | Description                                                                                                                                                              |
+|-------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `builtin.find_files`                | Lists files in your current working directory, respects .gitignore                                                                                                       |
+| `builtin.git_files`                 | Fuzzy search through the output of `git ls-files` command, respects .gitignore                                                                                           |
+| `builtin.grep_string`               | Searches for the string under your cursor or selection in your current working directory                                                                                              |
+| `builtin.live_grep`                 | Search for a string in your current working directory and get results live as you type, respects .gitignore. (Requires [ripgrep](https://github.com/BurntSushi/ripgrep)) |
 
 ### Vim Pickers
 
@@ -289,7 +320,7 @@ Built-in functions. Ready to be bound to any key you like.
 | `builtin.marks`                     | Lists vim marks and their value                                                                                                                             |
 | `builtin.colorscheme`               | Lists available colorschemes and applies them on `<cr>`                                                                                                     |
 | `builtin.quickfix`                  | Lists items in the quickfix list                                                                                                                            |
-| `builtin.quickfixhistory`           | Lists all quickfix lists in your history and open them with `builtin.quickfix`                                                                              |
+| `builtin.quickfixhistory`           | Lists all quickfix lists in your history and open them with `builtin.quickfix` or quickfix window                                                           |
 | `builtin.loclist`                   | Lists items from the current window's location list                                                                                                         |
 | `builtin.jumplist`                  | Lists Jump List entries                                                                                                                                     |
 | `builtin.vim_options`               | Lists vim options, allows you to edit the current value on `<cr>`                                                                                           |
@@ -326,7 +357,7 @@ Built-in functions. Ready to be bound to any key you like.
 |-------------------------------------|------------------------------------------------------------------------------------------------------------|
 | `builtin.git_commits`               | Lists git commits with diff preview, checkout action `<cr>`, reset mixed `<C-r>m`, reset soft `<C-r>s` and reset hard `<C-r>h` |
 | `builtin.git_bcommits`              | Lists buffer's git commits with diff preview and checks them out on `<cr>`                                 |
-| `builtin.git_branches`              | Lists all branches with log preview, checkout action `<cr>`, track action `<C-t>` and rebase action`<C-r>` |
+| `builtin.git_branches`              | Lists all branches with log preview, checkout action `<cr>`, track action `<C-t>`, rebase action`<C-r>`, create action `<C-a>`, switch action `<C-s>`, delete action `<C-d>` and merge action `<C-y>` |
 | `builtin.git_status`                | Lists current changes per file with diff preview and add action. (Multi-selection still WIP)               |
 | `builtin.git_stash`                 | Lists stash items in current repository with ability to apply them on `<cr>`                               |
 
@@ -512,7 +543,7 @@ Telescope user autocmds:
 ## Extensions
 
 Telescope provides the capabilities to create & register extensions, which
-improve telescope in a variety of ways.
+improves telescope in a variety of ways.
 
 Some extensions provide integration with external tools, outside of the scope of
 `builtins`.  Others provide performance enhancements by using compiled C and

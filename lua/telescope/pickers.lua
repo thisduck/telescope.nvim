@@ -90,7 +90,7 @@ function Picker:new(opts)
     sorter = opts.sorter or require("telescope.sorters").empty(),
 
     all_previewers = opts.previewer,
-    current_previewer_index = 1,
+    current_previewer_index = opts.current_previewer_index or 1,
 
     default_selection_index = opts.default_selection_index,
 
@@ -147,8 +147,8 @@ function Picker:new(opts)
     if obj.all_previewers[1] == nil then
       obj.all_previewers = { obj.all_previewers }
     end
-    obj.previewer = obj.all_previewers[1]
-    if obj.preview_title == nil then
+    obj.previewer = obj.all_previewers[obj.current_previewer_index]
+    if obj.preview_title == nil or #obj.all_previewers > 1 then
       obj.preview_title = obj.previewer:title(nil, config.values.dynamic_preview_title)
     else
       obj.fix_preview_title = true
@@ -344,7 +344,7 @@ function Picker:find()
   self.original_win_id = a.nvim_get_current_win()
 
   -- User autocmd run it before create Telescope window
-  vim.api.nvim_exec_autocmds("User TelescopeFindPre", {})
+  vim.api.nvim_exec_autocmds("User", { pattern = "TelescopeFindPre" })
 
   -- Create three windows:
   -- 1. Prompt window
@@ -456,6 +456,10 @@ function Picker:find()
 
     await_schedule()
 
+    -- we need to set the prefix color after changing mode since
+    -- https://github.com/neovim/neovim/commit/cbf9199d65325c1167d7eeb02a34c85d243e781c
+    self:_reset_prefix_color()
+
     while true do
       -- Wait for the next input
       rx.last()
@@ -531,7 +535,6 @@ function Picker:find()
     buffer = prompt_bufnr,
     group = "PickerInsert",
     nested = true,
-    once = true,
     callback = function()
       require("telescope.pickers").on_resize_window(prompt_bufnr)
     end,
@@ -1048,7 +1051,7 @@ function Picker:update_prefix(entry, row)
 
   local line = vim.api.nvim_buf_get_lines(self.results_bufnr, row, row + 1, false)[1]
   if not line then
-    log.warn(string.format("no line found at row %d in buffer %d", row, self.results_bufnr))
+    log.trace(string.format("no line found at row %d in buffer %d", row, self.results_bufnr))
     return
   end
 
@@ -1328,6 +1331,11 @@ function Picker:get_result_completor(results_bufnr, find_id, prompt, status_upda
     self:clear_extra_rows(results_bufnr)
     self.sorter:_finish(prompt)
 
+    if self.wrap_results and self.sorting_strategy == "descending" then
+      local visible_result_rows = vim.api.nvim_win_get_height(self.results_win)
+      vim.api.nvim_win_set_cursor(self.results_win, { self.max_results - visible_result_rows, 1 })
+      vim.api.nvim_win_set_cursor(self.results_win, { self.max_results, 1 })
+    end
     self:_on_complete()
   end)
 end
@@ -1416,6 +1424,8 @@ pickers.new = function(opts, defaults)
   if result["previewer"] == false then
     result["previewer"] = defaults["previewer"]
     result["__hide_previewer"] = true
+  elseif result["previewer"] == true then
+    result["previewer"] = defaults["previewer"]
   elseif type(opts["preview"]) == "table" and opts["preview"]["hide_on_startup"] then
     result["__hide_previewer"] = true
   end
